@@ -1,6 +1,7 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Package, AlertCircle, TrendingUp, Search, ShieldAlert, Truck } from "lucide-react";
+import { parseCommand } from "@/lib/commandParser";
 
 type Status = "in_stock" | "shipped" | "damaged" | "spoiled" | "reserved";
 
@@ -99,9 +100,95 @@ const DEMO_ACTIONS = [
   },
 ];
 
-export default function InventoryView({ setTranscript }: { setTranscript: (t: string) => void }) {
+export default function InventoryView({
+  setTranscript,
+  voiceCommand = "",
+}: {
+  setTranscript: (t: string) => void;
+  voiceCommand?: string;
+}) {
   const [items, setItems] = useState<InventoryItem[]>(INITIAL_ITEMS);
   const [search, setSearch] = useState("");
+
+  const flash = (id: string) => {
+    setItems((prev) => prev.map((i) => ({ ...i, highlighted: i.item_id === id })));
+    setTimeout(() => setItems((prev) => prev.map((i) => ({ ...i, highlighted: false }))), 3000);
+  };
+
+  // ── Process incoming voice commands ─────────────────────────────────────
+  useEffect(() => {
+    if (!voiceCommand.trim()) return;
+    const cmd = parseCommand(voiceCommand);
+
+    if (cmd.type === "REPORT_DAMAGE" && cmd.itemId) {
+      const qty = cmd.quantity ?? 1;
+      setItems((prev) =>
+        prev.map((item) =>
+          item.item_id === cmd.itemId
+            ? { ...item, status: "damaged", quantity: Math.max(0, item.quantity - qty), highlighted: true }
+            : item
+        )
+      );
+      setItems((prev) => {
+        const target = prev.find((i) => i.item_id === cmd.itemId);
+        setTranscript(`Damage recorded for ${cmd.itemId}. ${qty} unit${qty !== 1 ? "s" : ""} removed. Remaining: ${target?.quantity ?? 0}.`);
+        return prev;
+      });
+      setTimeout(() => setItems((prev) => prev.map((i) => ({ ...i, highlighted: false }))), 3000);
+      return;
+    }
+
+    if (cmd.type === "ADD_STOCK" && cmd.itemId) {
+      const qty = cmd.quantity ?? 10;
+      setItems((prev) => {
+        const updated = prev.map((item) =>
+          item.item_id === cmd.itemId
+            ? { ...item, quantity: item.quantity + qty, status: "in_stock" as Status, highlighted: true }
+            : item
+        );
+        const target = updated.find((i) => i.item_id === cmd.itemId);
+        setTranscript(`Done. ${qty} units added to ${cmd.itemId}. New quantity: ${target?.quantity ?? qty}.`);
+        return updated;
+      });
+      setTimeout(() => setItems((prev) => prev.map((i) => ({ ...i, highlighted: false }))), 3000);
+      return;
+    }
+
+    if (cmd.type === "UPDATE_STATUS" && cmd.itemId && cmd.status) {
+      setItems((prev) => {
+        const target = prev.find((i) => i.item_id === cmd.itemId);
+        const oldLabel = target ? STATUS_LABEL[target.status] : "unknown";
+        const newLabel = STATUS_LABEL[cmd.status as Status] ?? cmd.status;
+        setTranscript(`Done. ${cmd.itemId} updated from ${oldLabel} to ${newLabel}.`);
+        return prev.map((item) =>
+          item.item_id === cmd.itemId
+            ? { ...item, status: cmd.status as Status, highlighted: true }
+            : item
+        );
+      });
+      setTimeout(() => setItems((prev) => prev.map((i) => ({ ...i, highlighted: false }))), 3000);
+      return;
+    }
+
+    if (cmd.type === "GET_STATUS" && cmd.itemId) {
+      setItems((prev) => {
+        const target = prev.find((i) => i.item_id === cmd.itemId);
+        if (target) {
+          setTranscript(`${cmd.itemId}: ${target.name}, ${STATUS_LABEL[target.status]}, quantity ${target.quantity}, at ${target.location}.`);
+        } else {
+          setTranscript(`I could not find ${cmd.itemId}. Please check the SKU.`);
+        }
+        return prev.map((i) => ({ ...i, highlighted: i.item_id === cmd.itemId }));
+      });
+      setTimeout(() => setItems((prev) => prev.map((i) => ({ ...i, highlighted: false }))), 3000);
+      return;
+    }
+
+    if (cmd.type === "UNKNOWN") {
+      setTranscript(`Could not understand the command. Try: "damage SKU-007 five units" or "mark SKU-006 as reserved".`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceCommand]);
 
   const runDemo = (actionIndex: number) => {
     const [updated, transcript] = DEMO_ACTIONS[actionIndex].action(items);

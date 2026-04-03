@@ -32,6 +32,8 @@ export default function LogisticsCommander() {
   const [activeTab, setActiveTab] = useState("Inventory");
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("Tap the mic and speak a command…");
+  // finalTranscript holds the last confirmed sentence — passed to views for processing
+  const [finalTranscript, setFinalTranscript] = useState("");
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   // ── Set up Web Speech API once on mount ──────────────────────────────────
@@ -65,6 +67,11 @@ export default function LogisticsCommander() {
 
       // Show whatever is being said right now
       setTranscript(finalText || interimText || "Listening…");
+
+      // When speech recognition is confident (final), send to command processor
+      if (finalText.trim()) {
+        setFinalTranscript(finalText.trim());
+      }
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -105,7 +112,7 @@ export default function LogisticsCommander() {
   const renderActiveView = () => {
     switch (activeTab) {
       case "Dashboard":   return <DashboardView />;
-      case "Inventory":   return <InventoryView setTranscript={setTranscript} />;
+      case "Inventory":   return <InventoryView setTranscript={setTranscript} voiceCommand={finalTranscript} />;
       case "Pallets":     return <PalletsView setTranscript={setTranscript} />;
       case "Maintenance": return <MaintenanceView setTranscript={setTranscript} />;
       case "Reports":     return <ReportsView setTranscript={setTranscript} />;
