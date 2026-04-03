@@ -1,72 +1,49 @@
--- Create table for SKUs
-CREATE TABLE skus (
-    id SERIAL PRIMARY KEY,
-    sku_code VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    category VARCHAR(100),
-    supplier_name VARCHAR(255)
-);
+-- ============================================================
+-- Warehouse Inventory Schema
+-- Single flat table — shared by the MCP server and the frontend
+-- Run via: supabase db push  OR  paste into Supabase SQL editor
+-- ============================================================
 
--- Create table for Storage Sections
-CREATE TABLE storage_sections (
-    id SERIAL PRIMARY KEY,
-    section_code VARCHAR(10) UNIQUE NOT NULL,
-    description TEXT,
-    temperature_controlled BOOLEAN DEFAULT FALSE
-);
+DROP TABLE IF EXISTS inventory;
 
--- Create table for Pallets
-CREATE TABLE pallets (
-    id SERIAL PRIMARY KEY,
-    pallet_number VARCHAR(50) UNIQUE NOT NULL,
-    storage_section_id INTEGER REFERENCES storage_sections(id),
-    status VARCHAR(50) DEFAULT 'Good', -- Good, Damaged, Spill
-    notes TEXT
-);
-
--- Create table for Inventory
 CREATE TABLE inventory (
-    id SERIAL PRIMARY KEY,
-    sku_id INTEGER REFERENCES skus(id),
-    pallet_id INTEGER REFERENCES pallets(id),
-    quantity INTEGER NOT NULL DEFAULT 0,
-    status VARCHAR(50) DEFAULT 'Available' -- Available, Spoiled, In-Transit
+    item_id      VARCHAR(50)  PRIMARY KEY,
+    name         VARCHAR(255) NOT NULL,
+    -- Allowed statuses enforced by CHECK constraint
+    status       VARCHAR(20)  NOT NULL CHECK (status IN ('in_stock', 'shipped', 'damaged', 'spoiled', 'reserved')),
+    quantity     INTEGER      NOT NULL DEFAULT 0,
+    location     VARCHAR(100) NOT NULL,
+    last_updated TIMESTAMP    NOT NULL DEFAULT NOW(),
+    notes        TEXT                         -- nullable: damage/spoilage descriptions
 );
 
--- Create table for Maintenance Logs
-CREATE TABLE maintenance_logs (
-    id SERIAL PRIMARY KEY,
-    equipment_type VARCHAR(100) NOT NULL,
-    equipment_id VARCHAR(50),
-    reported_by VARCHAR(100),
-    issue_description TEXT NOT NULL,
-    status VARCHAR(50) DEFAULT 'Pending', -- Pending, Scheduled, Completed
-    scheduled_date TIMESTAMP
-);
+-- Auto-update last_updated on every row change
+CREATE OR REPLACE FUNCTION update_last_updated()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.last_updated = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Insert dummy data
-INSERT INTO skus (sku_code, name, category, supplier_name) VALUES
-('SKU-992', 'Premium Widgets', 'Electronics', 'Main Supplier Corp'),
-('SKU-104', 'Organic Milk 1L', 'Grocery', 'Dairy Farms Inc'),
-('SKU-551', 'Industrial Lubricant', 'Supplies', 'Machinery Co');
+CREATE TRIGGER trg_inventory_last_updated
+BEFORE UPDATE ON inventory
+FOR EACH ROW EXECUTE FUNCTION update_last_updated();
 
-INSERT INTO storage_sections (section_code, temperature_controlled) VALUES
-('A1', FALSE),
-('A2', FALSE),
-('B1', TRUE),
-('B2', TRUE);
+-- Enable Supabase Realtime so the frontend receives live updates
+ALTER PUBLICATION supabase_realtime ADD TABLE inventory;
 
-INSERT INTO pallets (pallet_number, storage_section_id, status) VALUES
-('4A', 1, 'Good'),
-('4B', 1, 'Good'),
-('5A', 3, 'Good');
-
-INSERT INTO inventory (sku_id, pallet_id, quantity) VALUES
-(1, 1, 100),
-(1, 2, 80),
-(2, 3, 500);
-
--- Existing issue simulation
-INSERT INTO maintenance_logs (equipment_type, equipment_id, issue_description, status) VALUES
-('Forklift', 'FL-09', 'Hydraulic leak observed near lifting mechanism.', 'Pending');
+-- ============================================================
+-- Sample data — 10 realistic items for demo
+-- ============================================================
+INSERT INTO inventory (item_id, name, status, quantity, location, notes) VALUES
+    ('SKU-001', 'Water Bottles (24-pack)',       'in_stock',  320,  'Zone-A, Shelf-1',  NULL),
+    ('SKU-002', 'Canned Soup (Tomato, case/12)', 'in_stock',  150,  'Zone-A, Shelf-3',  NULL),
+    ('SKU-003', 'Paper Towels (bulk roll x6)',   'reserved',   80,  'Pallet-4B',        'Reserved for order #8821'),
+    ('SKU-004', 'Nitrile Gloves (box/100)',      'in_stock',  400,  'Zone-B, Shelf-2',  NULL),
+    ('SKU-005', 'Cardboard Boxes (flat, lg)',    'shipped',     0,  'Loading Dock-1',   'Shipped via FedEx — tracking #FX9942'),
+    ('SKU-006', 'Hand Sanitizer (1L bottle)',    'in_stock',  210,  'Zone-C, Shelf-1',  NULL),
+    ('SKU-007', 'Pallet Wrap (stretch film)',    'damaged',    30,  'Pallet-2A',        '15 rolls torn during forklift incident on 2026-03-28'),
+    ('SKU-008', 'Frozen Peas (1kg bag)',         'spoiled',     0,  'Cold Storage-1',   'Freezer malfunction — entire batch spoiled 2026-03-30'),
+    ('SKU-009', 'Safety Vests (hi-vis, L)',      'in_stock',   95,  'Zone-B, Shelf-5',  NULL),
+    ('SKU-010', 'Duct Tape (48mm x 50m)',        'reserved',   60,  'Zone-D, Shelf-1',  'Reserved for maintenance crew');
