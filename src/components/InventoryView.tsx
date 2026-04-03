@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import { Package, AlertCircle, TrendingUp, CheckCircle, Search } from 'lucide-react';
+import type { VoiceState } from '@/app/page';
 
 interface InventoryItem {
   id: string;
@@ -13,7 +14,12 @@ interface InventoryItem {
   highlighted: boolean;
 }
 
-export default function InventoryView({ setTranscript }: { setTranscript: (t: string) => void }) {
+interface InventoryViewProps {
+  setTranscript: (t: string) => void;
+  setVoiceState: (v: VoiceState) => void;
+}
+
+export default function InventoryView({ setTranscript, setVoiceState }: InventoryViewProps) {
   const [items, setItems] = useState<InventoryItem[]>([
     { id: '1', sku: 'SKU-992', name: 'Premium Widgets', quantity: 180, location: 'A1, A2', status: 'Available', reordered: false, highlighted: false },
     { id: '2', sku: 'SKU-104', name: 'Organic Milk 1L', quantity: 50, location: 'B1', status: 'Available', reordered: false, highlighted: false },
@@ -21,42 +27,60 @@ export default function InventoryView({ setTranscript }: { setTranscript: (t: st
     { id: '4', sku: 'SKU-808', name: 'Alkaline Batteries', quantity: 15, location: 'C2', status: 'Low Stock', reordered: false, highlighted: false },
   ]);
 
-  const handleAction = (action: string, itemId: string) => {
-    setItems(prev => prev.map(item => {
-      if (item.id === itemId) {
-        if (action === 'markSpoiled') {
-          return { ...item, quantity: Math.max(0, item.quantity - 10), status: 'Needs Attention' };
-        }
-        if (action === 'addStock') {
-          return { ...item, quantity: item.quantity + 50, status: 'Available' };
-        }
-        if (action === 'reorder') {
-          return { ...item, reordered: true };
-        }
-        if (action === 'checkStock') {
-          return { ...item, highlighted: true };
-        }
-      }
-      if (action === 'checkStock' && item.id !== itemId) {
-        return { ...item, highlighted: false };
-      }
-      return item;
-    }));
+  const handleAction = (action: string, itemId: string, voicePrompt: string) => {
+    // 1. Enter Listing State
+    setVoiceState('listening');
+    setTranscript(voicePrompt);
 
-    const targetItem = items.find(i => i.id === itemId);
-    if (targetItem) {
-      if (action === 'markSpoiled') setTranscript(`Marked 10 units of ${targetItem.sku} as spoiled.`);
-      if (action === 'addStock') setTranscript(`Added 50 units to ${targetItem.sku} in ${targetItem.location}.`);
-      if (action === 'reorder') setTranscript(`Triggered automated re-order for ${targetItem.sku} from main supplier.`);
-      if (action === 'checkStock') setTranscript(`Checking stock for ${targetItem.sku}. Highlighting on your HUD.`);
-    }
-    
-    // Remove highlight after 4 seconds
-    if (action === 'checkStock') {
+    // 2. Enter Processing State after a brief delay
+    setTimeout(() => {
+      setVoiceState('processing');
+      setTranscript("Processing audio command...");
+      
+      // 3. Execute the actual UI action after another delay
       setTimeout(() => {
-        setItems(prev => prev.map(i => ({ ...i, highlighted: false })));
-      }, 4000);
-    }
+        setItems(prev => prev.map(item => {
+          if (item.id === itemId) {
+            if (action === 'markSpoiled') {
+              return { ...item, quantity: Math.max(0, item.quantity - 10), status: 'Needs Attention' };
+            }
+            if (action === 'addStock') {
+              return { ...item, quantity: item.quantity + 50, status: 'Available' };
+            }
+            if (action === 'reorder') {
+              return { ...item, reordered: true };
+            }
+            if (action === 'checkStock') {
+              return { ...item, highlighted: true };
+            }
+          }
+          if (action === 'checkStock' && item.id !== itemId) {
+            return { ...item, highlighted: false };
+          }
+          return item;
+        }));
+
+        const targetItem = items.find(i => i.id === itemId);
+        if (targetItem) {
+          if (action === 'markSpoiled') setTranscript(`Marked 10 units of ${targetItem.sku} as spoiled.`);
+          if (action === 'addStock') setTranscript(`Added 50 units to ${targetItem.sku} in ${targetItem.location}.`);
+          if (action === 'reorder') setTranscript(`Triggered automated re-order for ${targetItem.sku} from main supplier.`);
+          if (action === 'checkStock') setTranscript(`Checking stock for ${targetItem.sku}. Highlighting on your HUD.`);
+        }
+        
+        setVoiceState('success');
+
+        // Remove highlight and reset voice state back to idle after ~4 seconds
+        setTimeout(() => {
+          setVoiceState('idle');
+          setTranscript("VoiceOS Ready. Awaiting commands...");
+          if (action === 'checkStock') {
+            setItems(prev => prev.map(i => ({ ...i, highlighted: false })));
+          }
+        }, 3000);
+
+      }, 1500); // 1.5s processing
+    }, 1000); // 1s listening
   };
 
   return (
@@ -78,16 +102,16 @@ export default function InventoryView({ setTranscript }: { setTranscript: (t: st
           Simulate Voice Commands on SKU-104
         </div>
         <div className="flex flex-wrap gap-3">
-          <button onClick={() => handleAction('markSpoiled', '2')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-red-500/50 hover:text-red-400">
+          <button onClick={() => handleAction('markSpoiled', '2', "Mark 10 units spoiled")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-red-500/50 hover:text-red-400">
             <AlertCircle className="w-4 h-4" /> "Mark 10 units spoiled"
           </button>
-          <button onClick={() => handleAction('addStock', '2')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-emerald-500/50 hover:text-emerald-400">
+          <button onClick={() => handleAction('addStock', '2', "Add 50 to stock")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-emerald-500/50 hover:text-emerald-400">
              <TrendingUp className="w-4 h-4" /> "Add 50 to stock"
           </button>
-          <button onClick={() => handleAction('reorder', '2')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-blue-500/50 hover:text-blue-400">
+          <button onClick={() => handleAction('reorder', '2', "Reorder from supplier")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-blue-500/50 hover:text-blue-400">
              <Package className="w-4 h-4" /> "Reorder from supplier"
           </button>
-          <button onClick={() => handleAction('checkStock', '2')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-amber-500/50 hover:text-amber-400">
+          <button onClick={() => handleAction('checkStock', '2', "Check stock SKU-104")} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 rounded-lg border border-slate-700 flex items-center gap-2 transition hover:border-amber-500/50 hover:text-amber-400">
              <Search className="w-4 h-4" /> "Check stock SKU-104"
           </button>
         </div>
@@ -122,6 +146,7 @@ export default function InventoryView({ setTranscript }: { setTranscript: (t: st
                    <div className="flex items-center gap-2">
                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                        item.status === 'Available' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 
+                       item.status === 'Needs Attention' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 
                        item.status === 'Low Stock' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 
                        'bg-red-500/10 text-red-400 border border-red-500/20'
                      }`}>
